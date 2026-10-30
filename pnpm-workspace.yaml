@@ -1,0 +1,24 @@
+packages:
+  - apps/*
+  - packages/*
+
+# node_modules is shared between your machine and the Docker containers (bind mount).
+# Install native binaries (esbuild, rolldown, lightningcss, ...) for every platform
+# so the same install works on macOS, Windows/WSL and the Linux containers.
+supportedArchitectures:
+  os: [current, linux, darwin, win32]
+  cpu: [current, x64, arm64]
+  libc: [current, glibc]
+
+# Build-script policy. pnpm blocks dependency install scripts by default and,
+# with strictDepBuilds enabled (the default in pnpm 11+), fails the whole install
+# with ERR_PNPM_IGNORED_BUILDS for any build script that is not listed here.
+# `true` runs the script; `false` deliberately skips it without failing. @scarf/scarf
+# is analytics-only, so we skip its script but still exempt it from the strict check.
+allowBuilds:
+  esbuild: true
+  '@scarf/scarf': false
+
+# The containers and your machine use different pnpm stores. Don't auto-reinstall
+# before every `pnpm run`/`pnpm exec` just because node_modules was installed on the other side.
+verifyDepsBeforeRun: false

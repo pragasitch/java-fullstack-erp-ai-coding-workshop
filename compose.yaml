@@ -1,0 +1,83 @@
+# Local development stack. Usage:
+#   docker compose up            # postgres + api + web
+#
+# Every value below has a default; override any of them in a .env file (see .env.example).
+
+name: erp-workshop
+
+x-node-env:
+  &node-env # File watching through bind mounts is unreliable on some hosts (e.g. Windows): poll instead.
+  WATCH_POLLING: 'true'
+  CHOKIDAR_USEPOLLING: 'true'
+  TSC_WATCHFILE: DynamicPriorityPolling
+  TSC_WATCHDIRECTORY: DynamicPriorityPolling
+
+x-node-app: &node-app
+  build:
+    context: .
+    dockerfile: docker/dev.Dockerfile
+  image: erp-workshop-dev
+  working_dir: /workspace
+  volumes:
+    - .:/workspace
+    - pnpm-store:/pnpm/store
+    - m2:/m2/repository
+  environment:
+    <<: *node-env
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-erp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp}
+      POSTGRES_DB: ${POSTGRES_DB:-erp}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # One-shot: install dependencies and build the shared packages, then exit.
+  install:
+    <<: *node-app
+    command: sh -c "pnpm install && pnpm turbo run build --filter='./packages/*' --ui=stream"
+
+  api:
+    <<: *node-app
+    # Build the Spring Boot API, then run it. Flyway migrates and the seeder creates
+    # the demo users on startup, so no separate migrate/seed step is needed.
+    command: sh -c "mvn -q -B -f apps/api/pom.xml spring-boot:run"
+    ports:
+      - '${API_PORT:-3000}:3000'
+    environment:
+      <<: *node-env
+      PORT: '3000'
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-erp}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-erp}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-erp}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    <<: *node-app
+    command: pnpm turbo run dev --filter=@erp/web --ui=stream
+    ports:
+      - '${WEB_PORT:-5173}:5173'
+    environment:
+      <<: *node-env
+      HOST: 0.0.0.0
+      API_PROXY_TARGET: http://api:3000
+    depends_on:
+      install:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
+  pnpm-store:
+  m2:

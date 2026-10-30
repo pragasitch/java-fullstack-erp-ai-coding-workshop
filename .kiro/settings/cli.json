@@ -1,0 +1,5 @@
+{
+  "chat.defaultAgent": "erp",
+  "chat.enableKnowledge": false,
+  "chat.disableInheritingDefaultResources": true
+}
